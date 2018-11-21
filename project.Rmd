@@ -1,0 +1,107 @@
+---
+title: "Practical Machine Learning - Course Project"
+author: "Andreas Hermann"
+date: "11/12/2018"
+output: html_document
+---
+
+## Executive summary
+
+This report shows how a simple machine learning predictor can be built to do human activity recognition based on movement data.
+We try to predict the same 5 classes (sitting-down, standing-up, standing, walking, and sitting) with our own model.
+
+We will address these main points:
+
+- Model Building using Cross Validation
+- Discussion of Sample Error
+- Prediction of Test Cases
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+set.seed(42)
+library(caret)
+library(parallel)
+library(doParallel)
+```
+
+## Build Model
+
+Load the data and do some exploratory analysis.
+```{r}
+training <- data.frame(read.csv2('pml-training.csv', sep = ',', dec = '.', na.strings = c('#DIV/0!', 'NA'), stringsAsFactors = TRUE))
+testing <- data.frame(read.csv2('pml-testing.csv', sep = ',', dec = '.', na.strings = c('#DIV/0!', 'NA'), stringsAsFactors = TRUE))
+```
+
+Browse the data
+```{r}
+head(training)
+```
+
+See the outcome distribution
+```{r, echo=FALSE}
+barplot(prop.table(table(training$classe)))
+```
+
+
+### Data Cleansing
+
+Find the number of incomplete columns
+```{r}
+length(colnames(training)[colSums(is.na(training)) > 0])
+```
+
+Remove columns containing NA values, as it is hard to predict the class for unknown values
+
+```{r}
+na.cols <- colnames(training)[apply(training, 2, anyNA)]
+training[na.cols] <- NULL
+```
+
+Remove some columns that should not be used for the model
+```{r}
+training['X'] <- NULL
+training['cvtd_timestamp'] <- NULL
+training['user_name'] <- NULL
+training['new_window'] <- NULL
+```
+
+### Training
+
+Train a Random Forests model using 5-fold cross validation with the random forest method of caret package.
+Execute the code in parallel to speed up processing.
+
+```{r}
+cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
+registerDoParallel(cluster)
+
+control <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
+modFitRF <- train(classe ~ ., data=training, method="rf", trControl = control)
+
+stopCluster(cluster)
+```
+
+Analyse the accuracy and of the trained model
+
+```{r}
+plot(modFitRF)
+```
+Accuracy was used to select the optimal model using the largest value.
+The final value used for the model was mtry = 29.
+
+Given an accuracy of 99% on the training data for out-of-bag values we should expect a similar accuracy on out of sample data.
+
+## Prediction
+
+Predict the class of the test data using our trained random forest model
+
+```{r}
+pRF <- predict(modFitRF, newdata=testing)
+table(testing$X, pRF)
+```
+
+The predicted data is less equally distributed into the five classes than the observed training data.
+
+```{r}
+hist(as.numeric(pRF))
+```
+
