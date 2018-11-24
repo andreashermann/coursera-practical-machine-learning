@@ -20,6 +20,7 @@ We will address these main points:
 knitr::opts_chunk$set(echo = TRUE)
 set.seed(42)
 library(caret)
+library(rattle)
 library(parallel)
 library(doParallel)
 ```
@@ -35,13 +36,8 @@ testing <- data.frame(read.csv2('pml-testing.csv', sep = ',', dec = '.', na.stri
 Browse the data
 ```{r}
 head(training)
+str(training)
 ```
-
-See the outcome distribution
-```{r, echo=FALSE}
-barplot(prop.table(table(training$classe)))
-```
-
 
 ### Data Cleansing
 
@@ -65,7 +61,37 @@ training['user_name'] <- NULL
 training['new_window'] <- NULL
 ```
 
-### Training
+Split the data into training and validation sets
+
+```{r}
+inTrain <- createDataPartition(training$classe, p=0.8, list=FALSE)
+cv_train <- training[inTrain, ]
+cv_validation <- training[-inTrain, ]
+```
+
+I will train two different types of models. Decision trees and random forests.
+
+## Decision Trees
+
+Train a decision tree with caret package rpart
+```{r}
+modFitRPart <- train(classe ~ ., data=cv_train, method="rpart")
+```
+
+Visualize the trained model
+
+```{r}
+fancyRpartPlot(modFitRPart$finalModel)
+```
+
+
+```{r}
+pRF <- predict(modFitRPart, newdata=cv_validation)
+confusionMatrix(cv_validation$classe, pRF)
+```
+
+
+## Random Forests
 
 Train a Random Forests model using 5-fold cross validation with the random forest method of caret package.
 Execute the code in parallel to speed up processing.
@@ -75,20 +101,25 @@ cluster <- makeCluster(detectCores() - 1) # convention to leave 1 core for OS
 registerDoParallel(cluster)
 
 control <- trainControl(method = "cv", number = 5, allowParallel = TRUE)
-modFitRF <- train(classe ~ ., data=training, method="rf", trControl = control)
+modFitRF <- train(classe ~ ., data=cv_train, method="rf", trControl = control)
 
 stopCluster(cluster)
 ```
 
-Analyse the accuracy and of the trained model
+Given an accuracy of 99% on the training data for out-of-bag values we should expect a similar accuracy on out of sample data.
+
+Analyse the accuracy of the trained model.
 
 ```{r}
-plot(modFitRF)
+pRF <- predict(modFitRF, newdata=cv_validation)
+confusionMatrix(cv_validation$classe, pRF)
 ```
-Accuracy was used to select the optimal model using the largest value.
-The final value used for the model was mtry = 29.
 
-Given an accuracy of 99% on the training data for out-of-bag values we should expect a similar accuracy on out of sample data.
+
+## Sample Error
+
+Accuracy of RPart model was 49% compared to 99% of the RF model.
+I select random forest a my model to use for predicting the exercise outcomes.
 
 ## Prediction
 
@@ -98,10 +129,3 @@ Predict the class of the test data using our trained random forest model
 pRF <- predict(modFitRF, newdata=testing)
 table(testing$X, pRF)
 ```
-
-The predicted data is less equally distributed into the five classes than the observed training data.
-
-```{r}
-hist(as.numeric(pRF))
-```
-
